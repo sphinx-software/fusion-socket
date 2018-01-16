@@ -1,15 +1,10 @@
-const IO     = require('koa-socket');
-const Koa    = require('koa');
 const lodash = require('lodash');
+const io = require('socket.io');
 
 exports.register = async (container) => {
     container.singleton('socket.kernel', async () => {
-        const config       = await container.make('config');
-        const socketKernel = new Koa(); 
-        const io           = new IO(config.socket.options);
-        
-        io.attach(socketKernel);    
-        return socketKernel;    
+        const config = await container.make('config');
+        return io(config.socket.options);
     });
 };
 
@@ -18,22 +13,22 @@ exports.boot = async (container) => {
     const socketKernel = await container.make('socket.kernel');
 
     // attach container
-    socketKernel.io.use(async (context, next) => {
-        context.container = container;
-        await next();
+    socketKernel.use((socket, next) => {
+        socket.container = container;
+        next();
     });
-    
+
     // register middlewares
-    config.socket.middlewares.forEach((middleware) => socketKernel.io.use(middleware));
+    config.socket.middlewares.forEach((middleware) => socketKernel.use(middleware));
 
-    // register events    
-    lodash.forEach(config.socket.handlers, (handlers, eventName) => {
-        handlers.forEach((handler) => {
-            socketKernel.io.on(eventName, handler);
+    socketKernel.on('connect', (socket) => {
+        console.log(`client ${socket.id} is connected`)
+
+        // register events for connected socket
+        lodash.forEach(config.socket.handlers, (handlers, eventName) => {
+            handlers.forEach((handler) => {
+                socket.on(eventName, (...arg) => handler(socket, ...arg));
+            })
         })
-    })
-
-    socketKernel.io.on('connection', (socket) => {
-        console.log(`client ${socket.socket.client.id} is connected`)
     });
 };
