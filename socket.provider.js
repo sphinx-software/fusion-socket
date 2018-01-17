@@ -1,5 +1,6 @@
-const lodash = require('lodash');
-const io = require('socket.io');
+const _       = require('lodash');
+const io      = require('socket.io');
+const adapter = require('socket.io-redis');
 
 exports.register = async (container) => {
     container.singleton('socket.kernel', async () => {
@@ -9,8 +10,22 @@ exports.register = async (container) => {
 };
 
 exports.boot = async (container) => {
-    const config       = await container.make('config');
+    const config       = (await container.make('config')).socket;
     const socketKernel = await container.make('socket.kernel');
+
+    if (config.adapter.redis) {
+        const redis = await container.make('redis');
+        socketKernel.adapter(adapter(
+            _.pickBy({
+                key: config.adapter.redis.key || null,
+                pubClient: config.adapter.redis.pubClient || redis,
+                subClient: config.adapter.redis.subClient || redis,
+                host: config.adapter.redis.host || null,
+                port: config.adapter.redis.port || null,
+                requestsTimeout: config.adapter.redis.requestsTimeout || null
+            }, _.identity)
+        ));
+    }
 
     // attach container
     socketKernel.use((socket, next) => {
@@ -19,13 +34,13 @@ exports.boot = async (container) => {
     });
 
     // register middlewares
-    config.socket.middlewares.forEach((middleware) => socketKernel.use(middleware));
+    config.middlewares.forEach((middleware) => socketKernel.use(middleware));
 
     socketKernel.on('connect', (socket) => {
         console.log(`client ${socket.id} is connected`)
 
         // register events for connected socket
-        lodash.forEach(config.socket.handlers, (handlers, eventName) => {
+        _.forEach(config.handlers, (handlers, eventName) => {
             handlers.forEach((handler) => {
                 socket.on(eventName, (...arg) => handler(socket, ...arg));
             })
